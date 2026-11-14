@@ -1,0 +1,2 @@
+# UrbanCart ITSM uses only the Python standard library (Python 3.9+).
+# Nothing to install. This file exists so tooling and reviewers can see that on purpose.

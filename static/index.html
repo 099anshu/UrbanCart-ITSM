@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>UrbanCart ITSM Platform</title>
+<style>
+:root{--bg:#f6f5fb;--ink:#1b1840;--card:#fff;--acc:#ff5a4f;--mut:#6d6a8c;--ok:#1a9d5c;--bad:#d93a3a;--warn:#d98a00}
+*{box-sizing:border-box}body{margin:0;font:14px/1.45 system-ui,-apple-system,Segoe UI,sans-serif;background:var(--bg);color:var(--ink)}
+header{background:#1b1840;color:#fff;padding:14px 22px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+header h1{margin:0;font-size:18px}header .sub{color:#c9c6ee;font-size:12px}
+nav{display:flex;gap:4px;margin-left:auto;flex-wrap:wrap}
+nav button{background:transparent;color:#c9c6ee;border:0;padding:7px 12px;border-radius:6px;cursor:pointer;font-size:13px}
+nav button.on{background:var(--acc);color:#fff}
+main{padding:20px;max-width:1250px;margin:auto}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.card{background:var(--card);border-radius:10px;padding:14px;box-shadow:0 1px 3px #0001}
+.card h3{margin:0 0 8px;font-size:13px;color:var(--mut);font-weight:600}
+.big{font-size:26px;font-weight:700}.mut{color:var(--mut);font-size:12px}
+.pill{display:inline-block;padding:1px 8px;border-radius:99px;font-size:11px;font-weight:600;background:#eee;color:#444}
+.met,.ok{background:#d9f3e5;color:var(--ok)}.not,.bad,.P1{background:#fde0e0;color:var(--bad)}
+.P2{background:#ffe9c7;color:var(--warn)}.nodata{background:#ececf4;color:var(--mut)}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden;box-shadow:0 1px 3px #0001}
+th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #eee;vertical-align:top}th{background:#f0eff8;font-size:12px;color:var(--mut)}
+button.b{background:var(--ink);color:#fff;border:0;border-radius:6px;padding:4px 10px;cursor:pointer;font-size:12px;margin:1px}
+button.b.r{background:var(--acc)}button.b.g{background:#e4e2f3;color:var(--ink)}
+input,select{padding:6px 8px;border:1px solid #cfcde6;border-radius:6px;font:inherit}
+h2{margin:22px 0 10px;font-size:16px}h2:first-child{margin-top:0}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:8px 0}
+#detail{margin-top:14px}pre{white-space:pre-wrap;margin:0;font:12px/1.5 ui-monospace,Menlo,monospace}
+#toast{position:fixed;bottom:18px;right:18px;background:var(--ink);color:#fff;padding:10px 16px;border-radius:8px;opacity:0;transition:.2s;pointer-events:none;max-width:420px}
+#toast.show{opacity:1}#toast.err{background:var(--bad)}
+.bar{height:6px;background:#e4e2f3;border-radius:4px;overflow:hidden;margin-top:6px}.bar i{display:block;height:100%;background:var(--acc)}
+</style></head><body>
+<header><div><h1>UrbanCart ITSM Platform</h1><div class="sub" id="hdr">connecting...</div></div>
+<nav id="nav"></nav></header>
+<main id="main"></main><div id="toast"></div>
+<script>
+const $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const tm=t=>t?new Date(t*1000).toLocaleTimeString():'-';
+const money=n=>'₹'+Number(n).toLocaleString('en-IN');
+function toast(m,err){const t=$('#toast');t.textContent=m;t.className=err?'err show':'show';setTimeout(()=>t.className='',2600)}
+async function api(path,method='GET',body){
+  const r=await fetch('/api'+path,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
+  const j=await r.json().catch(()=>({}));
+  if(!r.ok){toast(j.error||r.statusText,true);throw new Error(j.error)}return j}
+async function act(path,body,msg){try{await api(path,'POST',body||{});if(msg)toast(msg);refresh()}catch(e){}}
+const pill=(t,c)=>`<span class="pill ${c||t}">${esc(t)}</span>`;
+let tab='overview',busy=false;
+const TABS={overview:'Overview',shop:'Shop & Support',incidents:'Incidents',problems:'Problems',changes:'Changes',hubs:'Hubs & Inventory',kb:'Knowledge Base'};
+$('#nav').innerHTML=Object.entries(TABS).map(([k,v])=>`<button id="t-${k}" onclick="show('${k}')">${v}</button>`).join('');
+function show(t){tab=t;$('#detail')&&0;document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.id==='t-'+t));refresh()}
+async function refresh(){if(busy)return;busy=true;try{await VIEWS[tab]();const h=await api('/health');
+  $('#hdr').textContent=`${h.checkout.mode} mode · workers ${h.checkout.workers} · queue ${h.checkout.queue} · v${h.version}${h.sale?' · SALE ON':''}`}catch(e){}busy=false}
+const keepDetail=()=>($('#detail')?$('#detail').innerHTML:'');
+const setMain=(html)=>{const d=keepDetail();$('#main').innerHTML=html+'<div id="detail">'+d+'</div>'};
+
+/* ---------- Overview ---------- */
+const VIEWS={};
+VIEWS.overview=async()=>{
+  const [h,k,al,lt]=await Promise.all([api('/health'),api('/kpis'),api('/alerts'),api('/loadtest')]);
+  const chk=Object.entries(h.checks).map(([n,c])=>`<tr><td>${esc(n)}</td><td>${pill(c.ok?'healthy':'FAILING',c.ok?'ok':'bad')}</td><td class="mut">${esc(c.msg)}</td></tr>`).join('')||'<tr><td colspan=3 class="mut">waiting for first monitor cycle...</td></tr>';
+  const svc=Object.entries(h.services).map(([n,m])=>`<div class="row" style="margin:2px 0"><b style="width:80px">${n}</b>${pill(m,m==='ok'?'ok':'bad')}
+    <button class="b g" onclick="act('/sim/fault',{service:'${n}',mode:'down'},'${n} set DOWN')">down</button>
+    <button class="b g" onclick="act('/sim/fault',{service:'${n}',mode:'slow'},'${n} set SLOW')">slow</button>
+    <button class="b g" onclick="act('/sim/fault',{service:'${n}',mode:'flaky'},'${n} set FLAKY')">flaky</button>
+    <button class="b" onclick="act('/sim/fault',{service:'${n}',mode:'ok'},'${n} restored')">restore</button></div>`).join('');
+  const kp=k.kpis.map(x=>{const v=x.value===null?'—':x.value+(x.unit==='%'?'%':' '+(x.unit==='/5'?'/ 5':x.unit));
+    const st=x.status==='met'?'met':x.status==='not met'?'not':'nodata';
+    return `<div class="card"><h3>${esc(x.name)}</h3><div class="big">${esc(v)}</div><div class="mut">target ${x.op==='<'?'&lt; ':x.op==='>='?'≥ ':''}${esc(x.target)}${typeof x.target==='number'&&x.unit==='%'?'%':''}</div>${pill(x.status,st)} <span class="mut">${esc(x.basis)}</span></div>`}).join('');
+  const ms=k.milestones.map(m=>`<div>${m.done?'✅':'⬜'} Phase ${m.phase}: ${esc(m.text)}</div>`).join('');
+  const l=lt.last,ltx=l?`${l.users} shoppers (${l.multiplier}x) · ${l.mode} · success <b>${l.success_pct}%</b> · p95 ${l.p95_ms} ms · ${pill(l.passed?'PASS':'FAIL',l.passed?'ok':'bad')}`:'no test run yet';
+  const sc=h.checkout.scale_events.slice().reverse().map(e=>`${tm(e.ts)} → ${e.workers} workers (${esc(e.why)})`).join('<br>')||'—';
+  setMain(`<h2>KPIs vs targets (from the case study)</h2><div class="grid">${kp}</div>
+  <div class="grid" style="margin-top:12px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))">
+   <div class="card"><h3>Roadmap milestones</h3>${ms}</div>
+   <div class="card"><h3>Monitoring (every few seconds)</h3><table>${chk}</table></div>
+   <div class="card"><h3>Simulation controls (fault injection)</h3>${svc}
+     <div class="row"><button class="b ${h.sale?'r':''}" onclick="act('/sim/sale',{on:${!h.sale}},'Sale mode toggled')">${h.sale?'End flash sale':'Start flash sale mode'}</button></div></div>
+   <div class="card"><h3>Flash-sale load test (normal load = 20 shoppers)</h3>
+     <div class="row"><input id="lt" type="number" value="100" min="1" max="500" style="width:90px"><button class="b r" onclick="runLT()">${lt.running?'running...':'Run load test'}</button></div>
+     <div class="mut">Last: ${ltx}</div><div class="mut">Best passing: ${lt.best_multiplier}x</div>
+     <h3 style="margin-top:10px">Autoscaler</h3><div class="mut">${sc}</div></div>
+  </div><h2>Recent automated alerts</h2><table><tr><th>Time</th><th>Check</th><th>Severity</th><th>Message</th><th>Detected after</th><th>Incident</th></tr>
+  ${al.map(a=>`<tr><td>${tm(a.ts)}</td><td>${esc(a.check_name)}</td><td>${pill(a.severity)}</td><td>${esc(a.message)}</td><td>${a.detection_s==null?'-':a.detection_s.toFixed(1)+' s'}</td><td>#${a.incident_id}</td></tr>`).join('')||'<tr><td colspan=6 class="mut">no alerts yet: inject a fault above</td></tr>'}</table>`)};
+function runLT(){const n=+$('#lt').value;act('/loadtest',{users:n},'Load test started')}
+
+/* ---------- Shop & Support ---------- */
+VIEWS.shop=async()=>{
+  const [p,o]=await Promise.all([api('/products'),api('/orders')]);
+  const who=localStorage.cust||'asha';
+  setMain(`<h2>Shop (orders go through the queued checkout)</h2><div class="row">Customer: <input id="cust" value="${esc(who)}" onchange="localStorage.cust=this.value"></div>
+  <table><tr><th>Product</th><th>Category</th><th>Price</th><th>Available</th><th></th></tr>${p.map(x=>`<tr><td>${esc(x.name)}</td><td>${esc(x.category)}</td><td>${money(x.price)}</td><td>${x.available}</td><td><button class="b r" onclick="buy('${x.sku}')">Buy</button></td></tr>`).join('')}</table>
+  <h2>Orders</h2><table><tr><th>Order</th><th>Customer</th><th>Item</th><th>Status</th><th>Tracking</th><th>Gateway</th><th></th></tr>
+  ${o.map(x=>`<tr><td>${x.id}</td><td>${esc(x.customer)}</td><td>${esc(x.sku)} ×${x.qty}</td><td>${pill(x.status,['SHIPPED','DELIVERED','CONFIRMED'].includes(x.status)?'ok':['FAILED','OUT_OF_STOCK'].includes(x.status)?'bad':'')}</td><td>${esc(x.tracking||'-')}</td><td>${esc(x.gateway||'-')}</td><td><button class="b g" onclick="track('${x.id}')">Track</button></td></tr>`).join('')||'<tr><td colspan=7 class="mut">no orders yet</td></tr>'}</table>`)};
+async function buy(sku){try{const r=await api('/checkout','POST',{customer:$('#cust').value,sku,qty:1});toast('Order '+r.order_id+' queued');track(r.order_id);setTimeout(refresh,700)}catch(e){}}
+async function track(id){try{const [c,e,l]=await Promise.all(['chat','email','call'].map(ch=>api(`/support/${ch}/orders/${id}`)));
+  $('#detail').innerHTML=`<div class="card"><h3>Order ${id}: one status, every channel</h3>
+  <div class="row">${[c,e,l].map(v=>`<span class="pill">${v.channel}: ${v.status}</span>`).join('')}</div><p>${esc(c.message)} ${c.tracking?'Tracking <b>'+c.tracking+'</b>':''}</p>
+  <pre>${c.timeline.map(t=>tm(t.ts)+'  '+t.status.padEnd(13)+t.note).join('\n')}</pre>
+  <div class="row">${c.status==='SHIPPED'?`<button class="b" onclick="act('/orders/${id}/deliver',{},'Marked delivered');setTimeout(()=>track('${id}'),400)">Mark delivered</button>`:''}
+  Rate: ${[1,2,3,4,5].map(n=>`<button class="b g" onclick="act('/orders/${id}/feedback',{rating:${n}},'Thanks for the rating')">${n}★</button>`).join('')}</div></div>`}catch(e){}}
+
+/* ---------- Incidents ---------- */
+VIEWS.incidents=async()=>{
+  const r=await api('/incidents');
+  const sla=i=>i.status==='resolved'?(i.breached?pill('breached','bad'):pill('met','ok')):(i.breached?pill('BREACHED','bad'):Math.round(i.sla_remaining_s/60)+' min left');
+  setMain(`<div class="row"><h2 style="margin:0">Incidents</h2><button class="b r" onclick="newInc()">+ New incident</button></div>
+  <table><tr><th>#</th><th>Pri</th><th>Title</th><th>Status</th><th>Level</th><th>SLA</th><th>Problem</th><th></th></tr>
+  ${r.map(i=>`<tr><td>${i.id}</td><td>${pill(i.priority)}</td><td>${esc(i.title)} ${i.auto?'<span class="mut">(auto)</span>':''}</td><td>${esc(i.status)}</td><td>${i.level}</td><td>${sla(i)}</td><td>${i.problem_id?'#'+i.problem_id:'-'}</td>
+  <td><button class="b g" onclick="incDetail(${i.id})">Log</button>${i.status==='new'?`<button class="b" onclick="act('/incidents/${i.id}/ack',{by:'service-desk'},'Acknowledged')">Ack</button>`:''}
+  ${i.status!=='resolved'?`<button class="b" onclick="resolveInc(${i.id})">Resolve</button><button class="b g" onclick="act('/incidents/${i.id}/escalate',{},'Escalated')">Escalate</button>`:''}</td></tr>`).join('')||'<tr><td colspan=8 class="mut">no incidents</td></tr>'}</table>`)};
+function newInc(){const title=prompt('Incident title?');if(!title)return;const priority=prompt('Priority P1-P4?','P3')||'P3';act('/incidents',{title,priority:priority.toUpperCase()},'Incident logged')}
+function resolveInc(id){const resolution=prompt('Resolution note?');if(resolution)act('/incidents/'+id+'/resolve',{resolution,by:'service-desk'},'Resolved')}
+async function incDetail(id){const i=await api('/incidents/'+id);$('#detail').innerHTML=`<div class="card"><h3>Incident #${id}: ${esc(i.title)}</h3><p>${esc(i.description)}</p><pre>${i.log.map(l=>tm(l.ts)+'  '+l.note).join('\n')}</pre></div>`}
+
+/* ---------- Problems ---------- */
+VIEWS.problems=async()=>{
+  const r=await api('/problems');
+  setMain(`<div class="row"><h2 style="margin:0">Problem records (root cause analysis)</h2><button class="b r" onclick="newProb()">+ New problem</button></div>
+  <p class="mut">A problem is opened automatically when the same failure causes 3 or more incidents. Resolving one publishes a known-error article to the knowledge base.</p>
+  <table><tr><th>#</th><th>Title</th><th>Status</th><th>Incidents</th><th>Root cause</th><th>Workaround</th><th></th></tr>
+  ${r.map(p=>`<tr><td>${p.id}</td><td>${esc(p.title)}</td><td>${pill(p.status)}</td><td>${p.incidents}</td><td>${esc(p.root_cause||'-')}</td><td>${esc(p.workaround||'-')}</td><td>${p.status!=='resolved'?`<button class="b" onclick="updProb(${p.id})">Update</button>`:''}</td></tr>`).join('')||'<tr><td colspan=7 class="mut">no problems yet</td></tr>'}</table>`)};
+function newProb(){const title=prompt('Problem title?');if(title)act('/problems',{title},'Problem opened')}
+function updProb(id){const root_cause=prompt('Root cause (blank to keep)?');const workaround=prompt('Workaround (blank to keep)?');
+  const status=prompt('Status: investigating, known_error or resolved','investigating');
+  act(`/problems/${id}/update`,{status,root_cause:root_cause||undefined,workaround:workaround||undefined},'Problem updated')}
+
+/* ---------- Changes ---------- */
+VIEWS.changes=async()=>{
+  const r=await api('/changes');
+  const btn=c=>({draft:`<button class="b" onclick="act('/changes/${c.id}/submit',{},'Submitted')">Submit</button>`,
+   pending_approval:`<button class="b" onclick="approve(${c.id})">Approve</button><button class="b g" onclick="act('/changes/${c.id}/reject',{approver:'change-board',reason:'rejected'},'Rejected')">Reject</button>`,
+   approved:`<button class="b r" onclick="act('/changes/${c.id}/start',{},'Canary started at 5%')">Start canary</button>`,
+   rolling_out:`<button class="b" onclick="act('/changes/${c.id}/advance',{},'Health gate evaluated')">Advance (health gate)</button><button class="b g" onclick="act('/changes/${c.id}/rollback',{},'Rolled back')">Roll back</button>`}[c.status]||'');
+  setMain(`<div class="row"><h2 style="margin:0">Change enablement</h2><button class="b r" onclick="newChange()">+ New change</button></div>
+  <p class="mut">No release reaches production without an approved change (approver must differ from requester). Rollouts go 5% → 25% → 50% → 100%, each step gated on health; a failed gate rolls back automatically. Non-emergency releases are blocked during a sale.</p>
+  <table><tr><th>#</th><th>Title</th><th>Risk</th><th>Type</th><th>Status</th><th>Rollout</th><th></th></tr>
+  ${r.map(c=>`<tr><td>${c.id}</td><td>${esc(c.title)} <span class="mut">${esc(c.version)}</span></td><td>${c.risk}</td><td>${c.type}</td><td>${pill(c.status,c.status==='rolled_back'?'bad':c.status==='completed'?'ok':'')}</td>
+  <td>${c.rollout_pct}%<div class="bar"><i style="width:${c.rollout_pct}%"></i></div></td><td>${btn(c)}<button class="b g" onclick="chgDetail(${c.id})">Log</button></td></tr>`).join('')||'<tr><td colspan=7 class="mut">no changes</td></tr>'}</table>`)};
+function newChange(){const title=prompt('Change title?');if(!title)return;const version=prompt('Release version?','2.0.0')||'';
+  const risk=prompt('Risk: low, medium or high','medium');const type=prompt('Type: standard, normal or emergency','normal');const requester=prompt('Requested by?','developer');
+  api('/changes','POST',{title,version,risk,type,requester}).then(r=>{toast('Change #'+r.id+' created');refresh()}).catch(()=>{})}
+function approve(id){const approver=prompt('Approver name (must differ from requester)','change-board');if(approver)act(`/changes/${id}/approve`,{approver},'Approved')}
+async function chgDetail(id){const c=await api('/changes/'+id);$('#detail').innerHTML=`<div class="card"><h3>Change #${id}: ${esc(c.title)}</h3><pre>${c.log.map(l=>tm(l.ts)+'  '+l.note).join('\n')}</pre></div>`}
+
+/* ---------- Hubs & Inventory ---------- */
+VIEWS.hubs=async()=>{
+  const [h,s]=await Promise.all([api('/hubs'),api('/stock')]);
+  setMain(`<h2>Fulfilment hubs</h2><p class="mut">New hubs open only when monitoring is running, a load test at 3x or more has passed, and no P1 is open (the deck's "stabilise before expanding" rule).</p>
+  <table><tr><th>Hub</th><th>Status</th><th></th></tr>${h.map(x=>`<tr><td>${esc(x.name)}</td><td>${pill(x.status,x.status==='active'?'ok':'')}</td><td>${x.status==='planned'?`<button class="b r" onclick="act('/hubs/${encodeURIComponent(x.name)}/onboard',{},'${esc(x.name)} onboarded')">Onboard</button>`:''}</td></tr>`).join('')}</table>
+  <h2>Hub scan (reconcile physical vs system stock)</h2>
+  <div class="row"><select id="sh">${h.filter(x=>x.status==='active').map(x=>`<option>${esc(x.name)}</option>`).join('')}</select>
+  <select id="ss">${[...new Set(s.map(x=>x.sku))].map(x=>`<option>${x}</option>`).join('')}</select>
+  <input id="sc" type="number" placeholder="physical count" style="width:130px"><button class="b r" onclick="scan()">Submit scan</button></div>
+  <h2>Stock by hub (single source of truth)</h2><table><tr><th>SKU</th><th>Product</th><th>Hub</th><th>On hand</th><th>Reserved</th></tr>
+  ${s.map(x=>`<tr><td>${x.sku}</td><td>${esc(x.name)}</td><td>${esc(x.hub)}</td><td>${x.on_hand}</td><td>${x.reserved}</td></tr>`).join('')}</table>`)};
+async function scan(){try{const c=$('#sc').value;if(c==='')return toast('Enter a count',true);const counts={};counts[$('#ss').value]=+c;
+  const r=await api('/inventory/sync','POST',{hub:$('#sh').value,counts});toast(r.mismatches.length?'Mismatch found, corrected, incident raised':'Counts match');refresh()}catch(e){}}
+
+/* ---------- Knowledge ---------- */
+VIEWS.kb=async()=>{
+  const q=($('#q')||{}).value||'';const r=await api('/kb?q='+encodeURIComponent(q));
+  setMain(`<div class="row"><h2 style="margin:0">Shared knowledge base (all support channels)</h2><input id="q" placeholder="search..." value="${esc(q)}" onchange="refresh()"><button class="b r" onclick="newKb()">+ Article</button></div>
+  ${r.map(a=>`<div class="card" style="margin:10px 0"><h3>#${a.id} ${esc(a.title)} <span class="mut">[${esc(a.tags)}]</span></h3><pre>${esc(a.body)}</pre></div>`).join('')}`)};
+function newKb(){const title=prompt('Title?');const body=title&&prompt('Article body?');if(body)act('/kb',{title,body,tags:prompt('Tags (comma separated)?','')||''},'Article added')}
+
+show('overview');setInterval(()=>{if(!document.hidden&&!['INPUT','SELECT'].includes(document.activeElement.tagName))refresh()},2500);
+</script></body></html>
